@@ -3,113 +3,88 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Guestbook App</title>
-    <style>
-        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
-        .version { background: #f0f0f0; padding: 10px; border-radius: 5px; margin: 10px 0; }
-        .message { border: 1px solid #ddd; padding: 10px; margin: 10px 0; border-radius: 5px; }
-    </style>
+    <title>Гостевая книга</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
-    <h1>📖 Гостевая книга</h1>
-    
-    <div class="version">
-        <strong>Версия фронтенда:</strong> <span id="frontend-version">frontend-v1.0</span>
+    <div class="container">
+        <header>
+            <h1><i class="fas fa-book"></i> Гостевая книга</h1>
+            <p class="subtitle">Serverless приложение на Yandex Cloud</p>
+        </header>
+
+        <div class="app-info">
+            <div class="info-card">
+                <h3><i class="fas fa-info-circle"></i> Информация о приложении</h3>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <span class="label">Версия фронтенда:</span>
+                        <span id="frontend-version" class="value">1.0.0</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="label">Версия бэкенда:</span>
+                        <span id="backend-version" class="value">Загрузка...</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="label">ID контейнера:</span>
+                        <span id="container-id" class="value">Загрузка...</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="label">Всего сообщений:</span>
+                        <span id="total-messages" class="value">0</span>
+                    </div>
+                </div>
+                <button id="refresh-info" class="btn-secondary">
+                    <i class="fas fa-sync-alt"></i> Обновить информацию
+                </button>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="message-form">
+                <h2><i class="fas fa-edit"></i> Новое сообщение</h2>
+                <form id="message-form">
+                    <div class="form-group">
+                        <label for="author"><i class="fas fa-user"></i> Ваше имя (необязательно):</label>
+                        <input type="text" id="author" placeholder="Аноним">
+                    </div>
+                    <div class="form-group">
+                        <label for="message"><i class="fas fa-comment"></i> Сообщение:</label>
+                        <textarea id="message" rows="4" placeholder="Введите ваше сообщение..." required></textarea>
+                    </div>
+                    <button type="submit" class="btn-primary">
+                        <i class="fas fa-paper-plane"></i> Отправить
+                    </button>
+                </form>
+            </div>
+
+            <div class="messages-list">
+                <h2><i class="fas fa-comments"></i> Сообщения</h2>
+                <div id="messages-container">
+                    <div class="loading">
+                        <i class="fas fa-spinner fa-spin"></i> Загрузка сообщений...
+                    </div>
+                </div>
+                <button id="load-more" class="btn-secondary" style="display: none;">
+                    <i class="fas fa-arrow-down"></i> Загрузить еще
+                </button>
+            </div>
+        </div>
+
+        <footer>
+            <p>Гостевая книга. Развернуто на Yandex Cloud.</p>
+            <p class="tech-stack">
+                <span class="tech-item"><i class="fas fa-cloud"></i> Serverless Containers</span>
+                <span class="tech-item"><i class="fas fa-database"></i> Yandex Database</span>
+                <span class="tech-item"><i class="fas fa-storage"></i> Object Storage</span>
+                <span class="tech-item"><i class="fas fa-network-wired"></i> API Gateway</span>
+            </p>
+        </footer>
     </div>
-    
-    <div id="backend-version" class="version">
-        <strong>Версия бэкенда:</strong> Загрузка...
-    </div>
-    
-    <div id="messages">
-        <h2>Сообщения:</h2>
-        <div>Загрузка сообщений...</div>
-    </div>
-    
-    <h2>Добавить сообщение:</h2>
-    <form id="message-form">
-        <input type="text" id="author" placeholder="Ваше имя" style="width: 200px; padding: 8px; margin: 5px;">
-        <br>
-        <textarea id="message" placeholder="Ваше сообщение" style="width: 400px; height: 100px; padding: 8px; margin: 5px;"></textarea>
-        <br>
-        <button type="submit" style="padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px;">
-            Отправить
-        </button>
-    </form>
-    
-    <script>
-        const API_URL = 'https://ваш-gateway-id.apigw.yandexcloud.net/api';
-        
-        async function loadBackendInfo() {
-            try {
-                const response = await fetch(`${API_URL}/health`);
-                const data = await response.json();
-                document.getElementById('backend-version').innerHTML = 
-                    `<strong>Версия бэкенда:</strong> ${data.backend_version}`;
-            } catch (error) {
-                document.getElementById('backend-version').innerHTML = 
-                    `<strong>Версия бэкенда:</strong> Ошибка загрузки`;
-            }
-        }
-        
-        async function loadMessages() {
-            try {
-                const response = await fetch(`${API_URL}/messages`);
-                const data = await response.json();
-                
-                const messagesDiv = document.getElementById('messages');
-                messagesDiv.innerHTML = '<h2>Сообщения:</h2>';
-                
-                if (data.messages && data.messages.length > 0) {
-                    data.messages.forEach(msg => {
-                        const msgDiv = document.createElement('div');
-                        msgDiv.className = 'message';
-                        msgDiv.innerHTML = `
-                            <strong>${msg.author}</strong> 
-                            <small>(${new Date(msg.timestamp).toLocaleString()})</small>
-                            <p>${msg.message}</p>
-                        `;
-                        messagesDiv.appendChild(msgDiv);
-                    });
-                } else {
-                    messagesDiv.innerHTML += '<div>Пока нет сообщений. Будьте первым!</div>';
-                }
-            } catch (error) {
-                console.error('Error loading messages:', error);
-            }
-        }
-        
-        document.getElementById('message-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            const author = document.getElementById('author').value || 'Аноним';
-            const message = document.getElementById('message').value;
-            
-            if (!message.trim()) {
-                alert('Введите сообщение');
-                return;
-            }
-            
-            try {
-                const response = await fetch(`${API_URL}/messages`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ author, message })
-                });
-                
-                if (response.ok) {
-                    document.getElementById('message').value = '';
-                    loadMessages();
-                }
-            } catch (error) {
-                console.error('Error sending message:', error);
-            }
-        });
-        
-        loadBackendInfo();
-        loadMessages();
-    </script>
+
+    <div id="notification" class="notification"></div>
+
+    <script src="app.js"></script>
 </body>
 </html>
