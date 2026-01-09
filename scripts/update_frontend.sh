@@ -1,7 +1,7 @@
 #!/bin/bash
 source ../config.sh
-echo "Обновление фронтенда"
-NEW_VERSION="1.0.3"
+
+NEW_VERSION="2.0.0"
 
 sed -i "s/1\.0\.2/$NEW_VERSION/g" ${FRONTEND_DIR}/app.js
 sed -i "s/1\.0\.20/$NEW_VERSION/g" ${FRONTEND_DIR}/index.html
@@ -15,7 +15,7 @@ for file in index.html style.css app.js; do
         --force
 done
 
-echo "Обновление версии в БД"
+echo "Updating Data Base"
 API_URL="https://d5dfhgu4kl9q539qlgup.akta928u.apigw.yandexcloud.net"
 curl -X POST "${API_URL}/api/versions" \
     -H "Content-Type: application/json" \

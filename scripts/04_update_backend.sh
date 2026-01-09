@@ -1,5 +1,4 @@
 #!/bin/bash
-echo "Обновление Serverless Container..."
 
 VERSION="2.0.0"
 docker build -t guestbook-backend:$VERSION ./backend
@@ -16,4 +15,4 @@ yc serverless container revision deploy \
   --service-account-id ajea3jl0iqs1ra81b9a6 \
   --environment "YDB_ENDPOINT=grpcs://ydb.serverless.yandexcloud.net:2135,YDB_DATABASE=/ru-central1/b1gs4v0spf3gqtfk0dlj/etnl0edkqt1ufa0ajp5i,BACKEND_VERSION=$VERSION"
 
-echo "Бэкенд обновлен до версии $VERSION"
+echo "Updated to $VERSION"
