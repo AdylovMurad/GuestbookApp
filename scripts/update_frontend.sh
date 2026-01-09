@@ -1,10 +1,23 @@
 #!/bin/bash
-echo "Обновление фронтенда в Object Storage..."
+source ../config.sh
+echo "Обновление фронтенда"
+NEW_VERSION="1.0.3"
 
-BUCKET_NAME="guestbook-frontend-murad"
-NEW_VERSION="1.1.0"
+sed -i "s/1\.0\.2/$NEW_VERSION/g" ${FRONTEND_DIR}/app.js
+sed -i "s/1\.0\.20/$NEW_VERSION/g" ${FRONTEND_DIR}/index.html
+echo $NEW_VERSION > ${FRONTEND_DIR}/version.txt
 
-sed -i "s/Версия фронтенда:.*<\/span>/Версия фронтенда: $NEW_VERSION<\/span>/" frontend/index.html
+for file in index.html style.css app.js; do
+    yc storage object upload \
+        --bucket-name ${BUCKET_NAME} \
+        --path "${FRONTEND_DIR}/$file" \
+        --name "$file" \
+        --force
+done
 
-echo "Обновлено до версии $NEW_VERSION"
-echo "Фронтенд: https://${BUCKET_NAME}.website.yandexcloud.net"
+echo "Обновление версии в БД"
+API_URL="https://d5dfhgu4kl9q539qlgup.akta928u.apigw.yandexcloud.net"
+curl -X POST "${API_URL}/api/versions" \
+    -H "Content-Type: application/json" \
+    -d "{\"component\": \"frontend\", \"version\": \"${NEW_VERSION}\"}" \
+    --silent

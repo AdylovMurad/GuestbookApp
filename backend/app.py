@@ -10,69 +10,71 @@ app = Flask(__name__)
 
 YDB_ENDPOINT = os.getenv('YDB_ENDPOINT', 'grpcs://ydb.serverless.yandexcloud.net:2135')
 YDB_DATABASE = os.getenv('YDB_DATABASE', '')
-BACKEND_VERSION = os.getenv('BACKEND_VERSION', '1.0.0')
+BACKEND_VERSION = os.getenv('BACKEND_VERSION', '1.0.3')
 CONTAINER_ID = os.getenv('CONTAINER_ID', 'unknown')
 
-def init_driver():
-    driver_config = ydb.DriverConfig(
-        endpoint=YDB_ENDPOINT,
-        database=YDB_DATABASE,
-        credentials=ydb.iam.MetadataUrlCredentials(),
-    )
-    return ydb.Driver(driver_config)
-
-driver = init_driver()
-driver.wait(fail_fast=True, timeout=5)
-pool = ydb.SessionPool(driver)
+def init_ydb():
+    try:
+        driver_config = ydb.DriverConfig(
+            endpoint=YDB_ENDPOINT,
+            database=YDB_DATABASE,
+            credentials=ydb.iam.MetadataUrlCredentials(),
+        )
+        driver = ydb.Driver(driver_config)
+        driver.wait(fail_fast=True, timeout=5)
+        pool = ydb.SessionPool(driver)
+        return driver, pool
+    except Exception as e:
+        print(f"YDB connection error: {str(e)}")
+        return None, None
 
 def execute_query(query, params={}):
-    def callee(session):
-        prepared = session.prepare(query)
-        return session.transaction().execute(
-            prepared,
-            params,
-            commit_tx=True
-        )
-    return pool.retry_operation_sync(callee)
-
-def init_database():
-    create_table_query = '''
-    CREATE TABLE IF NOT EXISTS guestbook_messages (
-        id Text NOT NULL,
-        author Text,
-        message Text,
-        created_at Timestamp,
-        PRIMARY KEY (id)
-    );
-    
-    CREATE TABLE IF NOT EXISTS app_versions (
-        component Text NOT NULL,
-        version Text,
-        updated_at Timestamp,
-        PRIMARY KEY (component)
-    );
-    
-    UPSERT INTO app_versions (component, version, updated_at)
-    SELECT 'backend', '{0}', CurrentUtcTimestamp()
-    WHERE NOT EXISTS (
-        SELECT 1 FROM app_versions WHERE component = 'backend'
-    );
-    '''.format(BACKEND_VERSION)
+    driver, pool = init_ydb()
+    if driver is None or pool is None:
+        raise Exception("YDB not available")
     
     try:
-        execute_query(create_table_query)
-        print("Database initialized successfully")
+        def callee(session):
+            prepared = session.prepare(query)
+            return session.transaction().execute(
+                prepared,
+                params,
+                commit_tx=True
+            )
+        result = pool.retry_operation_sync(callee)
+        return result
     except Exception as e:
-        print(f"Database init error: {e}")
+        print(f"Query error: {str(e)}")
+        raise
+    finally:
+        if driver:
+            try:
+                driver.stop(timeout=1)
+            except:
+                pass
+
+def get_total_messages_count():
+    try:
+        query = '''
+        SELECT COUNT(*) as total_count
+        FROM guestbook_messages
+        '''
+        result = execute_query(query)
+        
+        if result and result[0].rows:
+            return result[0].rows[0].total_count
+        return 0
+    except Exception as e:
+        print(f"Error counting messages: {str(e)}")
+        return 0
 
 @app.route('/health', methods=['GET'])
 def health():
-    return jsonify({
-        "status": "healthy",
-        "backend_version": BACKEND_VERSION,
-        "container_id": CONTAINER_ID,
-        "ydb_connected": driver is not None
-    })
+    return jsonify({"status": "healthy", "version": BACKEND_VERSION})
+
+@app.route('/')
+def index():
+    return jsonify({"service": "Guestbook API", "version": BACKEND_VERSION})
 
 @app.route('/api/version', methods=['GET'])
 def get_version():
@@ -83,57 +85,66 @@ def get_version():
 
 @app.route('/api/messages', methods=['GET'])
 def get_messages():
-    query = '''
-    SELECT * FROM guestbook_messages 
-    ORDER BY created_at DESC 
-    LIMIT 100
-    '''
-    
     try:
+        query = '''
+        SELECT id, author, message, created_at
+        FROM guestbook_messages
+        ORDER BY created_at DESC
+        LIMIT 100
+        '''
         result = execute_query(query)
         messages = []
+        
         for row in result[0].rows:
+            created_at_str = None
+            if row.created_at:
+                try:
+                    ts_seconds = row.created_at / 1000000
+                    dt = datetime.fromtimestamp(ts_seconds)
+                    created_at_str = dt.isoformat()
+                except:
+                    created_at_str = str(row.created_at)
+            
             messages.append({
-                "id": row.id.decode('utf-8'),
-                "author": row.author.decode('utf-8') if row.author else "Аноним",
-                "message": row.message.decode('utf-8'),
-                "created_at": row.created_at.ToDatetime().isoformat()
+                "id": row.id.decode('utf-8') if isinstance(row.id, bytes) else row.id,
+                "author": row.author.decode('utf-8') if row.author and isinstance(row.author, bytes) else (row.author or "Аноним"),
+                "message": row.message.decode('utf-8') if row.message and isinstance(row.message, bytes) else row.message,
+                "created_at": created_at_str
             })
+        
         return jsonify(messages)
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print(f"Error getting messages: {e}")
+        return jsonify([])
 
 @app.route('/api/messages', methods=['POST'])
 def add_message():
-    data = request.json
-    if not data or 'message' not in data:
-        return jsonify({"error": "Message is required"}), 400
-    
-    message_id = str(uuid.uuid4())
-    author = data.get('author', 'Аноним')
-    message = data['message']
-    
-    query = '''
-    UPSERT INTO guestbook_messages (id, author, message, created_at)
-    VALUES ($id, $author, $message, CurrentUtcTimestamp())
-    '''
-    
-    params = {
-        '$id': message_id,
-        '$author': author,
-        '$message': message
-    }
-    
     try:
-        execute_query(query, params)
-
-        update_stats_query = '''
-        UPSERT INTO app_stats (key, value) VALUES
-        ('total_messages', COALESCE(
-            (SELECT value FROM app_stats WHERE key = 'total_messages'), 0
-        ) + 1)
+        data = request.get_json(force=True) 
+        
+        if not data or 'message' not in data:
+            return jsonify({"error": "Message is required"}), 400
+        
+        message_id = str(uuid.uuid4())
+        author = data.get('author', 'Аноним')
+        message = data['message']
+        
+        query = '''
+        DECLARE $id AS Utf8;
+        DECLARE $author AS Utf8;
+        DECLARE $message AS Utf8;
+        
+        UPSERT INTO guestbook_messages (id, author, message, created_at)
+        VALUES ($id, $author, $message, CurrentUtcTimestamp());
         '''
-        execute_query(update_stats_query)
+        
+        params = {
+            '$id': message_id,
+            '$author': author,
+            '$message': message
+        }
+        
+        execute_query(query, params)
         
         return jsonify({
             "id": message_id,
@@ -141,35 +152,27 @@ def add_message():
             "container_id": CONTAINER_ID
         })
     except Exception as e:
+        print(f"Error in add_message: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
-    query = '''
-    SELECT 
-        (SELECT COUNT(*) FROM guestbook_messages) as total_messages,
-        (SELECT version FROM app_versions WHERE component = 'backend') as backend_version,
-        (SELECT version FROM app_versions WHERE component = 'frontend') as frontend_version
-    '''
-    
     try:
-        result = execute_query(query)
-        if result[0].rows:
-            row = result[0].rows[0]
-            return jsonify({
-                "total_messages": row.total_messages,
-                "backend_version": row.backend_version.decode('utf-8') if row.backend_version else BACKEND_VERSION,
-                "frontend_version": row.frontend_version.decode('utf-8') if row.frontend_version else "1.0.0"
-            })
+        total_messages = get_total_messages_count()
+        
+        return jsonify({
+            "total_messages": total_messages,
+            "backend_version": BACKEND_VERSION,
+            "frontend_version": "1.0.3"
+        })
+    except Exception as e:
+        print(f"Error getting stats: {str(e)}")
         return jsonify({
             "total_messages": 0,
             "backend_version": BACKEND_VERSION,
-            "frontend_version": "1.0.0"
+            "frontend_version": "1.0.3"
         })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    init_database()
     port = int(os.getenv('PORT', 8080))
     app.run(host='0.0.0.0', port=port, debug=False)

@@ -18,6 +18,9 @@ USER appuser
 ENV PORT=8080
 ENV PYTHONUNBUFFERED=1
 
+COPY init_db.py .
+COPY init_db.sql .
+
 RUN echo "CONTAINER_ID=container-$(cat /proc/sys/kernel/random/uuid | cut -c1-8)" >> /app/container_id.sh
 
-CMD ["sh", "-c", "source /app/container_id.sh && export CONTAINER_ID && python app.py"]
+CMD ["sh", "-c", "python init_db.py && export CONTAINER_ID=container-$(cat /proc/sys/kernel/random/uuid | cut -c1-8) && python app.py"]
